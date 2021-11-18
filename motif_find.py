@@ -23,27 +23,61 @@ class Forward:
             self.state_to_index[f'M{i}'] = i + 2
         self.state_to_index['B2'] = self.motif_states_num + 2
         self.state_to_index['Bend'] = self.motif_states_num + 3
+        ## create member self.state_to_index
+        self.create_state_index_dict()
+        ## create member self.transitions
+        self.create_transitions_mat()
         print(self.state_to_index)
 
-    # def tau(self, state1, state2):
-    #     transitions = np.zeros(shape=(self.positions, self.positions))
-    #     transitions[self.state_to_index['Bstart']][[self.state_to_index['B1'] = self.q
-    #     transitions[self.state_to_index['Bstart']][[self.state_to_index['B2'] = 1- self.q
-    #     transitions[self.state_to_index['B1']][[self.state_to_index['B1'] = 1+ self.p ################
-    #
-        def fill_mat(self):
-            for position in range(self.seq_len):
-                # in first row char is '^' and we are at start state
-                if position == 0:
-                    self.mat[self.state_to_index['Bstart']][position] = 1
-                    # others rows be zero by default
-                else:
-                    for state in self.positions:
-                        sum = 0
-                        for next_state in self.state_to_index.keys():
-                            sum += self.mat[self.state_to_index[state]][position-1]\
-                                   * self.tau(state, next_state)
-                        sum *= self.emission[state][position]
+
+    def create_state_index_dict(self):
+        self.state_to_index = {
+            'Bstart': 0,
+            'B1': 1,
+        }
+        for i in range(self.motif_states_num):
+            self.state_to_index[f'M{i}'] = i + 2
+        self.state_to_index['B2'] = self.motif_states_num + 2
+        self.state_to_index['Bend'] = self.motif_states_num + 3
+
+
+    def create_transitions_mat(self):
+        ## format - row is state we are moving from, col is state we are moving to
+        # all transitions not explicitly stated default to 0
+        t_mat = np.zeros(shape=(self.positions, self.positions))
+        t_mat[self.state_to_index['Bstart']][self.state_to_index['B1']] = self.q
+        t_mat[self.state_to_index['Bstart']][self.state_to_index['B2']] = 1- self.q
+        t_mat[self.state_to_index['B1']][self.state_to_index['B1']] = 1 - self.p
+        t_mat[self.state_to_index['B1']][self.state_to_index['M0']] = self.p
+        ## create transitions M0 -> M1 -> .... -> Mk-1
+        for i in range(self.motif_states_num - 1):
+            curr_state = 'M{0}'.format(i)
+            next_state = 'M{0}'.format(i+1)
+            t_mat[self.state_to_index[curr_state]][
+                self.state_to_index[next_state]] = 1
+        last_M_state = 'M{0}'.format(self.motif_states_num-1)
+        t_mat[self.state_to_index[last_M_state]][self.state_to_index['B2']] = 1
+        t_mat[self.state_to_index['B2']][self.state_to_index['B2']] = 1 - self.p
+        t_mat[self.state_to_index['B2']][self.state_to_index['Bend']] = self.p
+        self.transitions = t_mat
+
+    def tau(self, state_ind_1, state_ind_2):
+        return self.transitions[state_ind_1][state_ind_2]
+
+
+    def fill_mat(self):
+        for position in range(self.seq_len):
+            # in first row char is '^' and we are at start state
+            if position == 0:
+                self.mat[self.state_to_index['Bstart']][position] = 1
+                # others rows be zero by default
+            else:
+                for state in self.positions:
+                    sum = 0
+                    for next_state in self.state_to_index.keys():
+                        sum += self.mat[self.state_to_index[state]][position-1]\
+                               * self.tau(state, next_state)
+                    sum *= self.emission[state][position]
 
 
 def print_result(hmm, seq):
