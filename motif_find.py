@@ -1,83 +1,81 @@
 import argparse
 import pandas as pd
 import numpy as np
+from scipy.special import logsumexp
+
 
 EXTERNAL_STATES = 4
 
+state_to_index = {
+    'Bstart': 0,
+    'B1': 1,
+    'B2': 2,
+    'Bend': 3
+}
 
 class Forward:
-    def __init__(self, seq, initial_emission, p, q):
+    def __init__(self, seq, emissions, transitions):
         self.seq = seq
-        self.initial_emission = initial_emission
-        self.p = p
-        self.q = q
-        self.motif_states_num = len(self.initial_emission)
-        self.positions = self.motif_states_num + EXTERNAL_STATES
-        self.seq_len = len(self.seq)
-        self.mat = np.zeros(shape=(self.positions, self.seq_len))
-        self.state_to_index = {
-            'Bstart': 0,
-            'B1': 1,
-        }
-        for i in range(self.motif_states_num):
-            self.state_to_index[f'M{i}'] = i + 2
-        self.state_to_index['B2'] = self.motif_states_num + 2
-        self.state_to_index['Bend'] = self.motif_states_num + 3
-        ## create member self.state_to_index
-        self.create_state_index_dict()
-        ## create member self.transitions
-        self.create_transitions_mat()
-        print(self.state_to_index)
-
-
-    def create_state_index_dict(self):
-        self.state_to_index = {
-            'Bstart': 0,
-            'B1': 1,
-        }
-        for i in range(self.motif_states_num):
-            self.state_to_index[f'M{i}'] = i + 2
-        self.state_to_index['B2'] = self.motif_states_num + 2
-        self.state_to_index['Bend'] = self.motif_states_num + 3
-
-
-    def create_transitions_mat(self):
-        ## format - row is state we are moving from, col is state we are moving to
-        # all transitions not explicitly stated default to 0
-        t_mat = np.zeros(shape=(self.positions, self.positions))
-        t_mat[self.state_to_index['Bstart']][self.state_to_index['B1']] = self.q
-        t_mat[self.state_to_index['Bstart']][self.state_to_index['B2']] = 1- self.q
-        t_mat[self.state_to_index['B1']][self.state_to_index['B1']] = 1 - self.p
-        t_mat[self.state_to_index['B1']][self.state_to_index['M0']] = self.p
-        ## create transitions M0 -> M1 -> .... -> Mk-1
-        for i in range(self.motif_states_num - 1):
-            curr_state = 'M{0}'.format(i)
-            next_state = 'M{0}'.format(i+1)
-            t_mat[self.state_to_index[curr_state]][
-                self.state_to_index[next_state]] = 1
-        last_M_state = 'M{0}'.format(self.motif_states_num-1)
-        t_mat[self.state_to_index[last_M_state]][self.state_to_index['B2']] = 1
-        t_mat[self.state_to_index['B2']][self.state_to_index['B2']] = 1 - self.p
-        t_mat[self.state_to_index['B2']][self.state_to_index['Bend']] = self.p
-        self.transitions = t_mat
-
-    def tau(self, state_ind_1, state_ind_2):
-        return self.transitions[state_ind_1][state_ind_2]
-
+        self.emissions = emissions
+        self.transitions = transitions
+        self.rows = emissions.shape[0] # number of states
+        self.cols = len(self.seq)
+        self.mat = np.zeros((self.rows, self.cols))
+        self.fill_mat()
 
     def fill_mat(self):
-        for position in range(self.seq_len):
-            # in first row char is '^' and we are at start state
-            if position == 0:
-                self.mat[self.state_to_index['Bstart']][position] = 1
-                # others rows be zero by default
-            else:
-                for state in self.positions:
-                    sum = 0
-                    for next_state in self.state_to_index.keys():
-                        sum += self.mat[self.state_to_index[state]][position-1]\
-                               * self.tau(state, next_state)
-                    sum *= self.emission[state][position]
+        # base case - start state is 1, rest are zero
+        self.mat[0][0] = 1
+        # take log
+        with np.errstate(divide='ignore'):
+            self.mat = np.log(self.mat)
+        # dynamic programming portion:
+        for i in range(1, self.cols):
+            # before log:
+            #self.mat[:, i] = np.multiply(self.emissions[self.seq[i]], np.matmul(self.transitions.T, self.mat[:, i - 1]))
+
+            self.mat[:, i] = self.emissions[self.seq[i]] + \
+                             logsumexp(self.mat[:, i - 1] + self.transitions.T, axis=1)
+
+    def get_matrix(self):
+        return self.mat
+
+    def get_forward_prob(self):
+        # return probability of end state in end of sequence
+        return self.mat[3][-1]
+
+
+class Backward:
+    def __init__(self, seq, emissions, transitions):
+        self.seq = seq
+        self.emissions = emissions
+        self.transitions = transitions
+        self.rows = emissions.shape[0]  # number of states
+        self.cols = len(self.seq)
+        self.mat = np.zeros((self.rows, self.cols))
+        self.fill_mat()
+
+    def fill_mat(self):
+        # base case - end state is 1, rest are zero
+        self.mat[3][-1] = 1
+        with np.errstate(divide='ignore'):
+            self.mat = np.log(self.mat)
+        # dynamic programming portion:
+        for i in range(self.cols - 2, -1, -1):
+            # before log: not sure this multiplication order gives right indexes
+            #self.mat[:, i] = np.matmul(self.transitions,
+            #                            self.mat[:, i + 1],
+            #                           self.emissions[self.seq[i+1]].to_numpy())
+            self.mat[:, i] = logsumexp(
+                    self.mat[:, i + 1] + self.transitions +
+                    self.emissions[self.seq[i+1]].to_numpy(), axis=1)
+
+
+    def get_backward_prob(self):
+        return self.mat[0][0]
+
+    def get_matrix(self):
+        return self.mat
 
 
 def print_result(hmm, seq):
@@ -86,6 +84,62 @@ def print_result(hmm, seq):
         print(hmm[i:i + 50])
         print(seq[i:i + 50])
         print()
+
+
+def tsv_to_emission_mat(tsv_path):
+    """
+    converts a tsv file to pandas df of score matrix
+    :param tsv_path: a path to a tsv file
+    :return: pandas df of score matrix
+    """
+    df = pd.read_csv(tsv_path, sep='\t')
+    df['^'] = np.zeros(df.shape[0])
+    df['$'] = np.zeros(df.shape[0])
+    # add emissions for states not in motif
+    rows = pd.DataFrame(np.zeros((4, df.shape[1])), columns=df.columns)
+    df = pd.concat([rows, df], ignore_index=True)
+    # 3 represents 'Bend', which emits '$' with probability 1
+    df['$'][3] = 1
+    # 0 represents 'Bstart', which emits '^' with probability 1
+    df['^'][0] = 1
+    # 1 and 2 represent B1 and B2, which emit AGCT with probability 0.25
+    df.iloc[1:3, 0:4] = 0.25
+    #return df
+    ## added for log:
+    with np.errstate(divide='ignore'):
+        return df.apply(np.log)
+
+def transition(p, q, k):
+    """
+    this function creates the transition matrix according to the transition
+    graph in the exercise description.
+    :param p:
+    :param q:
+    :param k: number of states(including B_start, B_end, B_1, B_2)
+    :return:
+    """
+    trans = np.zeros((k, k))
+    # Bstart -> B1
+    trans[0,1] = q
+    # Bstart -> M1
+    trans[0,2] = 1-q
+    # B1 -> B1
+    trans[1,1] = 1-p
+    # B1 -> M1
+    trans[1,4] = p
+    # B2 -> B2
+    trans[2,2] = 1-p
+    # Mend -> B2
+    trans[k-1,2] = 1
+    #B2 -> Bend
+    trans[2,3] = p
+    # Mi -> Mi+1
+    for i in range(4, k-1):
+        trans[i, i+1] = 1
+    #return trans
+    ## added for log:
+    with np.errstate(divide='ignore'):
+        return np.log(trans)
 
 
 def main():
@@ -101,19 +155,19 @@ def main():
     parser.add_argument('q', help='transition probability q (e.g. 0.5)',
                         type=float)
     args = parser.parse_args()
-    seq = '^' + args.seq
-    seq = seq + '$'
-    initial_emission = pd.read_csv(args.initial_emission, sep='\t',
-                                   index_col=0)
+    seq = '^' + args.seq + '$'
+    emission_mat = tsv_to_emission_mat(args.initial_emission)
+    transition_mat = transition(args.p, args.q, emission_mat.shape[0])
     if args.alg == 'viterbi':
         raise NotImplementedError
 
     elif args.alg == 'forward':
-        forward = Forward(seq, initial_emission, args.p, args.q)
-
+        f = Forward(seq, emission_mat, transition_mat)
+        print(f.get_forward_prob())
 
     elif args.alg == 'backward':
-        raise NotImplementedError
+        b = Backward(seq, emission_mat, transition_mat)
+        print(b.get_backward_prob())
 
     elif args.alg == 'posterior':
         raise NotImplementedError
