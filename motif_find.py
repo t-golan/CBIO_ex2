@@ -67,8 +67,8 @@ class Backward:
             #                            self.mat[:, i + 1],
             #                           self.emissions[self.seq[i+1]].to_numpy())
             self.mat[:, i] = logsumexp(
-                    self.mat[:, i + 1] + self.transitions +
-                    self.emissions[self.seq[i+1]].to_numpy(), axis=1)
+                    self.mat[:, i + 1] +
+                    self.emissions[self.seq[i+1]].to_numpy() + self.transitions, axis=1)
 
 
     def get_backward_prob(self):
