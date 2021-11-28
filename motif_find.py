@@ -76,6 +76,9 @@ class Backward:
         # return probability of beginning state in beginning of sequence
         return self.mat[0][0]
 
+    def get_matrix(self):
+        return self.mat
+
 
 class Viterbi:
     def __init__(self, seq, emissions, transitions):
@@ -111,7 +114,7 @@ class Viterbi:
             path[i - 1] = self.ptr_mat[argmax_k, i]
             argmax_k = int(path[i - 1])
         # replace state indexes with B and M
-        path = np.where(path < 4, "B", "M")
+        path = np.where(path < EXTERNAL_STATES, BACKGROUND, MOTIF)
         # make string and remove ^ and $ columns
         path_str = "".join(path)[1:-1]
         return path_str
@@ -128,22 +131,20 @@ class Posterior:
         self.fill_mat()
 
     def fill_mat(self):
-        for i in range(self.rows):
-            for j in range(self.cols):
-                self.mat[i][j] = (self.forward_mat[i][j] + self.backward_mat[i][j])
-        self.mat -= self.seq_prob
+        self.mat = (self.forward_mat + self.backward_mat) - self.seq_prob
+        #for i in range(self.rows):
+        #    for j in range(self.cols):
+        #        self.mat[i][j] = (self.forward_mat[i][j] + self.backward_mat[i][j])
+        #self.mat -= self.seq_prob
 
     def get_hmm(self):
-        hmm = ""
-        for col in self.mat.T[1:-1]:
-            state = np.argmax(col)
-            if state < EXTERNAL_STATES:
-                hmm += BACKGROUND
-            else:
-                hmm += MOTIF
-        return hmm
-
-
+        # get max of each col
+        states = np.argmax(self.mat, axis=0)
+        # replace state indexes with B and M
+        hmm = np.where(states < EXTERNAL_STATES, BACKGROUND, MOTIF)
+        # make string and remove ^ and $ columns
+        hmm_str = "".join(hmm)[1:-1]
+        return hmm_str
 
 
 
@@ -245,7 +246,7 @@ def main():
         f = Forward(seq, emission_mat, transition_mat)
         b = Backward(seq, emission_mat, transition_mat)
         p = Posterior(f, b, seq)
-        print_result(p.get_hmm(), seq[1:-1])
+        print_result(p.get_hmm(), args.seq)
 
 
 
