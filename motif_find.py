@@ -5,6 +5,8 @@ from scipy.special import logsumexp
 
 
 EXTERNAL_STATES = 4
+BACKGROUND = 'B'
+MOTIF = 'M'
 
 state_to_index = {
     'Bstart': 0,
@@ -67,8 +69,8 @@ class Backward:
             #                            self.mat[:, i + 1],
             #                           self.emissions[self.seq[i+1]].to_numpy())
             self.mat[:, i] = logsumexp(
-                    self.mat[:, i + 1] +
-                    self.emissions[self.seq[i+1]].to_numpy() + self.transitions, axis=1)
+                self.mat[:, i + 1] +
+                self.emissions[self.seq[i+1]].to_numpy() + self.transitions, axis=1)
 
 
     def get_backward_prob(self):
@@ -76,6 +78,36 @@ class Backward:
 
     def get_matrix(self):
         return self.mat
+
+
+class Posterior:
+    def __init__(self, forward, backward, seq):
+        self.seq = seq
+        self.forward_mat = forward.get_matrix()
+        self.backward_mat = backward.get_matrix()
+        (self.rows, self.cols) = self.forward_mat.shape
+        self.mat = np.zeros((self.rows, self.cols))
+        self.seq_prob = forward.get_forward_prob()
+        self.fill_mat()
+
+    def fill_mat(self):
+        for i in range(self.rows):
+            for j in range(self.cols):
+                self.mat[i][j] = (self.forward_mat[i][j] + self.backward_mat[i][j])
+        self.mat -= self.seq_prob
+
+    def get_hmm(self):
+        hmm = ""
+        for col in self.mat.T[1:-1]:
+            state = np.argmax(col)
+            if state < EXTERNAL_STATES:
+                hmm += BACKGROUND
+            else:
+                hmm += MOTIF
+        return hmm
+
+
+
 
 
 def print_result(hmm, seq):
@@ -142,6 +174,8 @@ def transition(p, q, k):
         return np.log(trans)
 
 
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--alg', help='Algorithm (e.g. viterbi)',
@@ -170,7 +204,12 @@ def main():
         print(b.get_backward_prob())
 
     elif args.alg == 'posterior':
-        raise NotImplementedError
+        f = Forward(seq, emission_mat, transition_mat)
+        b = Backward(seq, emission_mat, transition_mat)
+        p = Posterior(f, b, seq)
+        print_result(p.get_hmm(), seq[1:-1])
+
+
 
 
 if __name__ == '__main__':
