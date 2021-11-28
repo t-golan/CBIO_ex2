@@ -72,12 +72,49 @@ class Backward:
                 self.mat[:, i + 1] +
                 self.emissions[self.seq[i+1]].to_numpy() + self.transitions, axis=1)
 
-
     def get_backward_prob(self):
+        # return probability of beginning state in beginning of sequence
         return self.mat[0][0]
 
-    def get_matrix(self):
-        return self.mat
+
+class Viterbi:
+    def __init__(self, seq, emissions, transitions):
+        self.seq = seq
+        self.emissions = emissions
+        self.transitions = transitions
+        self.rows = emissions.shape[0]  # number of states
+        self.cols = len(self.seq)
+        self.v_mat = np.zeros((self.rows, self.cols))
+        self.ptr_mat = np.zeros((self.rows, self.cols))
+        self.fill_mat()
+
+    def fill_mat(self):
+        # base case - start state is 1, rest are zero
+        self.v_mat[0][0] = 1
+        with np.errstate(divide='ignore'):
+            self.v_mat = np.log(self.v_mat)
+        # dynamic programming portion
+        for i in range(1, self.cols):
+            self.v_mat[:, i] = self.emissions[self.seq[i]] + np.max(self.v_mat[:, i - 1] + self.transitions.T, axis=1)
+            # keep matrix of argmaxs
+            self.ptr_mat[:, i] = np.argmax(self.v_mat[:, i - 1] + self.transitions.T, axis=1)
+
+
+    def get_viterbi_path(self):
+        # create a vector with the indexes of the state corresponding to
+        # each position
+        path = np.zeros(self.v_mat.shape[1])
+        argmax_k = np.argmax(self.v_mat[:, -1])
+        path[-1] = argmax_k
+        # go backwards over columns and add argmax of each column to path
+        for i in range(self.v_mat.shape[1] - 1, 1, -1):
+            path[i - 1] = self.ptr_mat[argmax_k, i]
+            argmax_k = int(path[i - 1])
+        # replace state indexes with B and M
+        path = np.where(path < 4, "B", "M")
+        # make string and remove ^ and $ columns
+        path_str = "".join(path)[1:-1]
+        return path_str
 
 
 class Posterior:
@@ -193,7 +230,8 @@ def main():
     emission_mat = tsv_to_emission_mat(args.initial_emission)
     transition_mat = transition(args.p, args.q, emission_mat.shape[0])
     if args.alg == 'viterbi':
-        raise NotImplementedError
+        v = Viterbi(seq, emission_mat, transition_mat)
+        print_result(v.get_viterbi_path(), args.seq)
 
     elif args.alg == 'forward':
         f = Forward(seq, emission_mat, transition_mat)
